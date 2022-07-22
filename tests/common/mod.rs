@@ -1,6 +1,6 @@
+use log::LevelFilter;
 use std::env;
 use std::sync::Once;
-use log::LevelFilter;
 
 static LOG_INIT: Once = Once::new();
 
