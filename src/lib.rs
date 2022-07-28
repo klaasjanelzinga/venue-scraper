@@ -1,17 +1,18 @@
-pub mod errors;
+use std::fmt::{Debug, Display, Formatter};
 
-use std::fmt::{Debug, Display, Error, Formatter};
 use async_trait::async_trait;
-use errors::ErrorKind;
-use log::{error, info, trace};
 use reqwest::{RequestBuilder, Response, Url};
 use scraper::{ElementRef, Html, Selector};
-use scraper::html::Select;
+use tracing::{error, info, instrument, span, trace, warn, Level};
+
+use errors::ErrorKind;
+
+pub mod errors;
 
 #[derive(Debug)]
 pub struct Agenda {
     title: String,
-    description: String,
+    description: Option<String>,
     url: String,
 }
 
@@ -24,7 +25,6 @@ impl Display for Agenda {
             .finish()
     }
 }
-
 
 #[async_trait]
 pub trait HttpSend {
@@ -47,8 +47,9 @@ pub struct TivoliSyncer<'a, HttpSender: HttpSend = Sender> {
     agenda_urls: Vec<String>,
 }
 
+#[instrument(skip(client))]
 async fn request_for_url(client: &reqwest::Client, url: &str) -> Result<RequestBuilder, ErrorKind> {
-    trace!("fetch_body_for_url({})", url);
+    trace!("request_for_url");
     let url = Url::parse(url)?;
     let request = client.get(url);
     Ok(request)
@@ -82,14 +83,19 @@ fn get_text_for_single(text_element: &ElementRef) -> Result<String, ErrorKind> {
     if text_element.text().count() != 1 {
         return Err(ErrorKind::GenericError);
     }
-    let  text = text_element.text().next().unwrap();
+    let text = text_element.text().next().unwrap();
     Ok(text.trim().to_string())
 }
 
-fn get_select_on_element<'a>(search_in_element: &ElementRef<'a>, selector: &Selector) -> Result<ElementRef<'a>, ErrorKind> {
+fn get_select_on_element<'a>(
+    search_in_element: &ElementRef<'a>,
+    selector: &Selector,
+) -> Result<ElementRef<'a>, ErrorKind> {
     let selected = search_in_element.select(&selector);
     if selected.count() != 1 {
-        return Err(ErrorKind::CannotFindSelector {selector: format!("{:#?}", selector)});
+        return Err(ErrorKind::CannotFindSelector {
+            selector: format!("{:#?}", selector),
+        });
     }
     Ok(search_in_element.select(selector).next().unwrap())
 }
@@ -99,12 +105,79 @@ fn get_text_from_element(search_in: &ElementRef, selector: &Selector) -> Result<
     get_text_for_single(&selected)
 }
 
-fn get_text_from_attr(search_in: &ElementRef, selector: &Selector, attr_name: &str) -> Result<String, ErrorKind> {
+fn optional_text_from_element(
+    search_in: &ElementRef,
+    selector: &Selector,
+) -> Result<Option<String>, ErrorKind> {
+    let selected_result = get_select_on_element(&search_in, &selector);
+    match selected_result {
+        Ok(selected) => match get_text_for_single(&selected) {
+            Ok(text) => Ok(Some(text)),
+            Err(err) => Err(err),
+        },
+        Err(ErrorKind::CannotFindSelector { selector: _ }) => Ok(None),
+        Err(err) => Err(err),
+    }
+}
+
+fn get_text_from_attr(
+    search_in: &ElementRef,
+    selector: &Selector,
+    attr_name: &str,
+) -> Result<String, ErrorKind> {
     let selected_element = get_select_on_element(&search_in, &selector)?;
     let attr = selected_element.value().attr(&attr_name);
     match attr {
         Some(value) => Ok(value.to_string()),
-        None => Err(ErrorKind::CannotFindAttribute {attribute_name: attr_name.to_string()}),
+        None => Err(ErrorKind::CannotFindAttribute {
+            attribute_name: attr_name.to_string(),
+        }),
+    }
+}
+
+fn agenda_from_element(
+    element: &ElementRef,
+    tivoli_css_selectors: &TivoliCssSelectors,
+) -> Result<Agenda, ErrorKind> {
+    let url = get_text_from_attr(&element, &tivoli_css_selectors.url, "href")?;
+    let title = get_text_from_element(&element, &tivoli_css_selectors.title)?;
+    let description = optional_text_from_element(&element, &tivoli_css_selectors.description)?;
+
+    Ok(Agenda {
+        title,
+        description,
+        url: url.to_string(),
+    })
+}
+
+#[derive(Debug)]
+struct TivoliCssSelectors {
+    agenda_item: Selector,
+    title: Selector,
+    url: Selector,
+    description: Selector,
+}
+
+impl Display for TivoliCssSelectors {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TivoliCssSelectors").finish()
+    }
+}
+
+#[derive(Debug)]
+pub struct SyncingResult {
+    pub total_urls_fetched: u32,
+    pub total_items: u32,
+    pub total_unparseable_items: u32,
+}
+
+impl Display for SyncingResult {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SyncingResults")
+            .field("total_urls_fetched", &self.total_urls_fetched)
+            .field("total_items", &self.total_items)
+            .field("total_unparseable_items", &self.total_unparseable_items)
+            .finish()
     }
 }
 
@@ -129,46 +202,71 @@ impl<HttpSender: HttpSend> TivoliSyncer<'_, HttpSender> {
         }
     }
 
-    pub async fn sync(&mut self) -> Result<i64, ErrorKind> {
+    pub async fn sync(&mut self) -> Result<SyncingResult, ErrorKind> {
+        let tivoli_css_sectors = TivoliCssSelectors {
+            agenda_item: selector_for(r#"li.agenda-list-item"#)?,
+            url: selector_for(r#"a.agenda-list-item__title-link"#)?,
+            title: selector_for(r#"a.agenda-list-item__title-link"#)?,
+            description: selector_for(r#"p.agenda-list-item__text"#)?,
+        };
 
         let mut number_of_agenda_last_iteration = 0;
         let mut needs_next_page = true;
+        let mut sync_results = SyncingResult {
+            total_urls_fetched: 0,
+            total_items: 0,
+            total_unparseable_items: 0,
+        };
 
         for agenda_url in self.agenda_urls.iter() {
             if !needs_next_page {
                 continue;
             }
 
-            info!("Tivoli syncing. Url {}", agenda_url);
+            span!(Level::INFO, "agenda_url_parsing").in_scope(|| {});
+
+            sync_results.total_urls_fetched += 1;
+
+            info!(event = "Tivoli syncing on the url.", url = agenda_url);
             let request = request_for_url(&self.client, &agenda_url).await?;
             let response = self.http_sender.send(request).await?;
             let body = body_for_response(response).await?;
 
-            info!("Start parsing the response body");
             let parsed_html = Html::parse_document(&body);
-            let selector = selector_for(r#"li.agenda-list-item"#)?;
-            let title_selector = selector_for(r#"a.agenda-list-item__title-link"#)?;
-            let description_selector = selector_for(r#"p.agenda-list-item__text"#)?;
-            let url_selector = selector_for(r#"a.agenda-list-item__title-link"#)?;
 
-            for element in parsed_html.select(&selector) {
-                let title = get_text_from_element(&element, &title_selector)?;
-                let description = get_text_from_element(&element, &description_selector)?;
-                let url = get_text_from_attr(&element, &url_selector, "href")?;
+            // let agenda_items = parsed_html
+            //     .select(&tivoli_css_sectors.agenda_item)
+            //     .map(|element| agenda_from_element(&element, &tivoli_css_sectors))
+            //     .filter(|agenda_result| agenda_result.is_ok())
+            //     .map(|agenda_result| agenda_result.unwrap());
 
-                let agenda = Agenda {
-                    title,
-                    description,
-                    url: url.to_string(),
-                };
+            for element in parsed_html.select(&tivoli_css_sectors.agenda_item) {
+                match agenda_from_element(&element, &tivoli_css_sectors) {
+                    Ok(_agenda) => {
+                        sync_results.total_items += 1;
+                    }
+                    Err(ErrorKind::CannotFindSelector { selector }) => {
+                        warn!("Cannot locate selector {} in {}", selector, element.html());
+                        sync_results.total_unparseable_items += 1;
+                        continue;
+                    }
+                    Err(ErrorKind::CannotFindAttribute { attribute_name }) => {
+                        warn!("Cannot locate an attribute {}", attribute_name);
+                        sync_results.total_unparseable_items += 1;
+                        continue;
+                    }
+                    Err(err) => return Err(err),
+                }
             }
 
-            let number_of_agenda = parsed_html.select(&selector).count();
+            let number_of_agenda = parsed_html.select(&tivoli_css_sectors.agenda_item).count();
             needs_next_page = number_of_agenda >= number_of_agenda_last_iteration;
             number_of_agenda_last_iteration = number_of_agenda;
-            info!("Number of agenda {}, last iteration {}", number_of_agenda, number_of_agenda_last_iteration);
         }
-        Ok(13)
+
+        info!(event="Tivoli is synced", results=?sync_results);
+
+        Ok(sync_results)
     }
 }
 
@@ -179,7 +277,7 @@ pub async fn sync_venues() -> Result<i64, ErrorKind> {
     let result = tivoli_syncer.sync().await;
     match result {
         Err(err) => error!("Error syncing tivoli {}", err),
-        _ => info!("All went well")
+        _ => info!("All went well"),
     }
     Ok(3)
 }

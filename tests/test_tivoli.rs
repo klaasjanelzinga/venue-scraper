@@ -1,9 +1,10 @@
 mod common;
 
 use async_trait::async_trait;
-use log::{error, info};
-use std::fs;
 use std::path::Path;
+use tokio::fs::File;
+use tokio::io::AsyncReadExt;
+use tracing::info;
 use venue_scraper_api::errors::ErrorKind;
 use venue_scraper_api::{HttpSend, TivoliSyncer};
 
@@ -36,13 +37,15 @@ impl HttpSend for MockSender {
         if path.is_dir() {
             filename = format!("{}/index", filename);
         }
-        info!("Mocking url {} with {}", url, filename);
 
-        let mock_response = fs::read_to_string(filename).unwrap();
+        info!("Mocking url {} with {}", url, filename);
+        let mut file = File::open(filename).await.unwrap();
+        let mut buffer = Vec::new();
+        file.read_to_end(&mut buffer).await.unwrap();
 
         let response = http::response::Builder::new()
             .status(200)
-            .body(mock_response)
+            .body(buffer)
             .unwrap();
 
         Ok(response.into())
@@ -62,10 +65,12 @@ async fn test_sync_tivoli() {
 
     let mut tivoli_syncer = TivoliSyncer::with_sender_and_client(mock_sender, &client);
     let result = tivoli_syncer.sync().await;
-    match result {
-        Err(err) => error!("Error syncing tivoli {}", err),
-        _ => info!("All went well")
-    }
+
+    assert!(result.is_ok());
+    let syncing_result = result.unwrap();
+    assert_eq!(syncing_result.total_urls_fetched, 12);
+    assert_eq!(syncing_result.total_items, 591);
+    assert_eq!(syncing_result.total_unparseable_items, 0);
 
     assert_eq!(tivoli_syncer.http_sender.invoked_urls.len(), 12);
 

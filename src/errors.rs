@@ -25,7 +25,7 @@ pub enum ErrorKind {
 
     CannotFindSelector {
         selector: String,
-},
+    },
 }
 
 impl std::error::Error for ErrorKind {}
@@ -53,7 +53,11 @@ impl Display for ErrorKind {
         match &*self {
             ErrorKind::GenericError => write!(f, "Something is off"),
             ErrorKind::UrlCannotBeParsed { message } => {
-                write!(f, "UrlCannotBeParsed: The url cannot be parsed: {}", message)
+                write!(
+                    f,
+                    "UrlCannotBeParsed: The url cannot be parsed: {}",
+                    message
+                )
             }
             ErrorKind::StatusCodeFromUrl {
                 url,
@@ -66,7 +70,7 @@ impl Display for ErrorKind {
             ),
             ErrorKind::CssSelectorError { message } => {
                 write!(f, "CssSelectorError: Error in css selector {}", message)
-            },
+            }
             ErrorKind::CannotFindAttribute { attribute_name } => {
                 write!(f, "CannotFindAttribute: {}", attribute_name)
             }
