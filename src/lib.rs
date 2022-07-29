@@ -1,13 +1,28 @@
 use std::fmt::{Debug, Display, Formatter};
 
-use async_trait::async_trait;
-use reqwest::{RequestBuilder, Response, Url};
-use scraper::{ElementRef, Html, Selector};
-use tracing::{error, info, instrument, span, trace, warn, Level};
+use scraper::Html;
+use tokio::{join, try_join};
+use tracing::{error, info, instrument, trace, trace_span, warn};
 
 use errors::ErrorKind;
+use http_sender::{HttpSend, Sender};
+use parser::CssSelectors;
+
 
 pub mod errors;
+pub mod http_sender;
+mod parser;
+
+#[derive(Debug)]
+pub struct Venue {
+    name: String,
+}
+
+impl Display for Venue {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Venue").field("url", &self.name).finish()
+    }
+}
 
 #[derive(Debug)]
 pub struct Agenda {
@@ -26,142 +41,12 @@ impl Display for Agenda {
     }
 }
 
-#[async_trait]
-pub trait HttpSend {
-    async fn send(&mut self, request: RequestBuilder) -> Result<Response, ErrorKind>;
-}
-
-pub struct Sender;
-
-#[async_trait]
-impl HttpSend for Sender {
-    async fn send(&mut self, request: reqwest::RequestBuilder) -> Result<Response, ErrorKind> {
-        let response = request.send().await?;
-        Ok(response)
-    }
-}
-
-pub struct TivoliSyncer<'a, HttpSender: HttpSend = Sender> {
+pub struct VenueScraper<'a, HttpSender: HttpSend = Sender> {
     client: &'a reqwest::Client,
     pub http_sender: HttpSender,
+    venue: Venue,
     agenda_urls: Vec<String>,
-}
-
-#[instrument(skip(client))]
-async fn request_for_url(client: &reqwest::Client, url: &str) -> Result<RequestBuilder, ErrorKind> {
-    trace!("request_for_url");
-    let url = Url::parse(url)?;
-    let request = client.get(url);
-    Ok(request)
-}
-
-async fn body_for_response(response: reqwest::Response) -> Result<String, ErrorKind> {
-    if !response.status().is_success() {
-        return Err(ErrorKind::StatusCodeFromUrl {
-            status: response.status().to_string(),
-            status_code: response.status().as_u16(),
-            url: response.url().to_string(),
-        });
-    }
-    let body = response.text().await?;
-    Ok(body)
-}
-
-fn selector_for(selector: &str) -> Result<Selector, ErrorKind> {
-    match Selector::parse(&selector) {
-        Ok(selector) => Ok(selector),
-        Err(parse_error) => Err(ErrorKind::CssSelectorError {
-            message: format!(
-                "At line {}, col {}",
-                parse_error.location.line, parse_error.location.column
-            ),
-        }),
-    }
-}
-
-fn get_text_for_single(text_element: &ElementRef) -> Result<String, ErrorKind> {
-    if text_element.text().count() != 1 {
-        return Err(ErrorKind::GenericError);
-    }
-    let text = text_element.text().next().unwrap();
-    Ok(text.trim().to_string())
-}
-
-fn get_select_on_element<'a>(
-    search_in_element: &ElementRef<'a>,
-    selector: &Selector,
-) -> Result<ElementRef<'a>, ErrorKind> {
-    let selected = search_in_element.select(&selector);
-    if selected.count() != 1 {
-        return Err(ErrorKind::CannotFindSelector {
-            selector: format!("{:#?}", selector),
-        });
-    }
-    Ok(search_in_element.select(selector).next().unwrap())
-}
-
-fn get_text_from_element(search_in: &ElementRef, selector: &Selector) -> Result<String, ErrorKind> {
-    let selected = get_select_on_element(&search_in, &selector)?;
-    get_text_for_single(&selected)
-}
-
-fn optional_text_from_element(
-    search_in: &ElementRef,
-    selector: &Selector,
-) -> Result<Option<String>, ErrorKind> {
-    let selected_result = get_select_on_element(&search_in, &selector);
-    match selected_result {
-        Ok(selected) => match get_text_for_single(&selected) {
-            Ok(text) => Ok(Some(text)),
-            Err(err) => Err(err),
-        },
-        Err(ErrorKind::CannotFindSelector { selector: _ }) => Ok(None),
-        Err(err) => Err(err),
-    }
-}
-
-fn get_text_from_attr(
-    search_in: &ElementRef,
-    selector: &Selector,
-    attr_name: &str,
-) -> Result<String, ErrorKind> {
-    let selected_element = get_select_on_element(&search_in, &selector)?;
-    let attr = selected_element.value().attr(&attr_name);
-    match attr {
-        Some(value) => Ok(value.to_string()),
-        None => Err(ErrorKind::CannotFindAttribute {
-            attribute_name: attr_name.to_string(),
-        }),
-    }
-}
-
-fn agenda_from_element(
-    element: &ElementRef,
-    tivoli_css_selectors: &TivoliCssSelectors,
-) -> Result<Agenda, ErrorKind> {
-    let url = get_text_from_attr(&element, &tivoli_css_selectors.url, "href")?;
-    let title = get_text_from_element(&element, &tivoli_css_selectors.title)?;
-    let description = optional_text_from_element(&element, &tivoli_css_selectors.description)?;
-
-    Ok(Agenda {
-        title,
-        description,
-        url: url.to_string(),
-    })
-}
-
-#[derive(Debug)]
-struct TivoliCssSelectors {
-    agenda_item: Selector,
-    title: Selector,
-    url: Selector,
-    description: Selector,
-}
-
-impl Display for TivoliCssSelectors {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("TivoliCssSelectors").finish()
-    }
+    css_selectors: CssSelectors,
 }
 
 #[derive(Debug)]
@@ -181,11 +66,12 @@ impl Display for SyncingResult {
     }
 }
 
-impl<HttpSender: HttpSend> TivoliSyncer<'_, HttpSender> {
-    pub fn with_sender_and_client(
+impl<HttpSender: HttpSend> VenueScraper<'_, HttpSender> {
+
+    pub fn tivoli_with_sender_and_client(
         http_sender: HttpSender,
         client: &reqwest::Client,
-    ) -> TivoliSyncer<HttpSender> {
+    ) -> Result<VenueScraper<HttpSender>, ErrorKind> {
         let mut agenda_urls = Vec::new();
         agenda_urls.push(String::from("https://www.tivolivredenburg.nl/agenda/"));
         for count in 2..20 {
@@ -194,22 +80,65 @@ impl<HttpSender: HttpSend> TivoliSyncer<'_, HttpSender> {
                 count
             ));
         }
+        let agenda_item = parser::selector_for(r#"li.agenda-list-item"#)?;
+        let url = parser::selector_for(r#"a.agenda-list-item__title-link"#)?;
+        let title = parser::selector_for(r#"a.agenda-list-item__title-link"#)?;
+        let description = parser::selector_for(r#"p.agenda-list-item__text"#)?;
 
-        TivoliSyncer {
+        let css_selectors = CssSelectors {
+            agenda_item,
+            url,
+            title,
+            description,
+        };
+
+        let venue = Venue {
+            name: "Tivoli Utrecht".to_string(),
+        };
+
+        Ok(VenueScraper {
             client,
             http_sender,
             agenda_urls,
-        }
+            venue,
+            css_selectors,
+        })
+    }
+
+    pub fn spot_groningen_with_sender_and_client(
+        http_sender: HttpSender,
+        client: &reqwest::Client,
+    ) -> Result<VenueScraper<HttpSender>, ErrorKind> {
+        let mut agenda_urls = Vec::new();
+        agenda_urls.push(String::from("https://www.spotgroningen.nl/programma/"));
+
+        let agenda_item = parser::selector_for(r#"article.program__item"#)?;
+        let url = parser::selector_for(r#"a.program__link"#)?;
+        let title = parser::selector_for(r#"h1"#)?;
+        let description = parser::selector_for(r#"p"#)?;
+
+        let css_selectors = CssSelectors {
+            agenda_item,
+            url,
+            title,
+            description,
+        };
+
+        let venue = Venue {
+            name: "Spot Groningen".to_string(),
+        };
+
+        Ok(VenueScraper {
+            client,
+            http_sender,
+            agenda_urls,
+            venue,
+            css_selectors,
+        })
     }
 
     pub async fn sync(&mut self) -> Result<SyncingResult, ErrorKind> {
-        let tivoli_css_sectors = TivoliCssSelectors {
-            agenda_item: selector_for(r#"li.agenda-list-item"#)?,
-            url: selector_for(r#"a.agenda-list-item__title-link"#)?,
-            title: selector_for(r#"a.agenda-list-item__title-link"#)?,
-            description: selector_for(r#"p.agenda-list-item__text"#)?,
-        };
-
+        info!("Syncing venue {}", self.venue);
         let mut number_of_agenda_last_iteration = 0;
         let mut needs_next_page = true;
         let mut sync_results = SyncingResult {
@@ -222,27 +151,20 @@ impl<HttpSender: HttpSend> TivoliSyncer<'_, HttpSender> {
             if !needs_next_page {
                 continue;
             }
-
-            span!(Level::INFO, "agenda_url_parsing").in_scope(|| {});
-
             sync_results.total_urls_fetched += 1;
 
-            info!(event = "Tivoli syncing on the url.", url = agenda_url);
-            let request = request_for_url(&self.client, &agenda_url).await?;
-            let response = self.http_sender.send(request).await?;
-            let body = body_for_response(response).await?;
+            let body = trace_span!("fetching_url", agenda_url=agenda_url, venue=?self.venue).in_scope(|| async {
+                let request = http_sender::build_request_for_url(&self.client, &agenda_url)?;
+                let response = self.http_sender.send(request).await?;
+                http_sender::body_for_response(response).await
+            }).await?;
 
             let parsed_html = Html::parse_document(&body);
 
-            // let agenda_items = parsed_html
-            //     .select(&tivoli_css_sectors.agenda_item)
-            //     .map(|element| agenda_from_element(&element, &tivoli_css_sectors))
-            //     .filter(|agenda_result| agenda_result.is_ok())
-            //     .map(|agenda_result| agenda_result.unwrap());
-
-            for element in parsed_html.select(&tivoli_css_sectors.agenda_item) {
-                match agenda_from_element(&element, &tivoli_css_sectors) {
+            for element in parsed_html.select(&self.css_selectors.agenda_item) {
+                match parser::agenda_from_element(&element, &self.css_selectors) {
                     Ok(_agenda) => {
+                        trace!("Got agenda {}, ", _agenda);
                         sync_results.total_items += 1;
                     }
                     Err(ErrorKind::CannotFindSelector { selector }) => {
@@ -259,25 +181,30 @@ impl<HttpSender: HttpSend> TivoliSyncer<'_, HttpSender> {
                 }
             }
 
-            let number_of_agenda = parsed_html.select(&tivoli_css_sectors.agenda_item).count();
+            let number_of_agenda = parsed_html.select(&self.css_selectors.agenda_item).count();
             needs_next_page = number_of_agenda >= number_of_agenda_last_iteration;
             number_of_agenda_last_iteration = number_of_agenda;
         }
 
-        info!(event="Tivoli is synced", results=?sync_results);
-
+        info!("Sync completed {} {}", self.venue, sync_results);
         Ok(sync_results)
     }
 }
 
 pub async fn sync_venues() -> Result<i64, ErrorKind> {
-    trace!("Syncing the venues");
+    trace!("sync_venues");
     let client = reqwest::Client::new();
-    let mut tivoli_syncer = TivoliSyncer::with_sender_and_client(Sender, &client);
-    let result = tivoli_syncer.sync().await;
-    match result {
-        Err(err) => error!("Error syncing tivoli {}", err),
-        _ => info!("All went well"),
+
+    let mut tivoli_syncer = VenueScraper::tivoli_with_sender_and_client(Sender, &client).unwrap();
+    let mut spot_groningen_syncer = VenueScraper::spot_groningen_with_sender_and_client(Sender, &client).unwrap();
+
+    let (spot_result, tivoli_result) = join!(spot_groningen_syncer.sync(), tivoli_syncer.sync());
+
+    for result in [spot_result, tivoli_result] {
+        match result {
+            Err(err) => error!("Error syncing tivoli {}", err),
+            _ => info!("All went well"),
+        }
     }
     Ok(3)
 }
