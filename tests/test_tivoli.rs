@@ -2,7 +2,6 @@ mod common;
 mod mock_sender;
 
 use mock_sender::MockSender;
-use venue_scraper_api::http_sender::HttpSend;
 use venue_scraper_api::VenueScraper;
 
 #[tokio::test]
@@ -16,7 +15,8 @@ async fn test_sync_tivoli() {
 
     let client = reqwest::Client::new();
 
-    let mut tivoli_syncer = VenueScraper::tivoli_with_sender_and_client(mock_sender, &client).unwrap();
+    let mut tivoli_syncer =
+        VenueScraper::tivoli_with_sender_and_client(mock_sender, &client).unwrap();
     let result = tivoli_syncer.sync().await;
 
     assert!(result.is_ok());

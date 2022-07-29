@@ -2,9 +2,9 @@ use std::env;
 use std::sync::Once;
 use tracing::Level;
 
+use tracing_subscriber::fmt::format::FmtSpan;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::{filter, fmt, prelude::*};
-use tracing_subscriber::fmt::format::FmtSpan;
 
 static LOG_INIT: Once = Once::new();
 

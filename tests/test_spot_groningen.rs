@@ -15,7 +15,8 @@ async fn test_sync_spot_groningen() {
 
     let client = reqwest::Client::new();
 
-    let mut spot_groningen_syncer = VenueScraper::spot_groningen_with_sender_and_client(mock_sender, &client).unwrap();
+    let mut spot_groningen_syncer =
+        VenueScraper::spot_groningen_with_sender_and_client(mock_sender, &client).unwrap();
     let result = spot_groningen_syncer.sync().await;
 
     assert!(result.is_ok());

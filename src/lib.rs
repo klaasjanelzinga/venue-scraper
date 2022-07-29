@@ -1,13 +1,12 @@
 use std::fmt::{Debug, Display, Formatter};
 
-use scraper::Html;
-use tokio::{join, try_join};
+use scraper::{ElementRef, Html};
+use tokio::join;
 use tracing::{error, info, instrument, trace, trace_span, warn};
 
 use errors::ErrorKind;
 use http_sender::{HttpSend, Sender};
 use parser::CssSelectors;
-
 
 pub mod errors;
 pub mod http_sender;
@@ -15,7 +14,7 @@ mod parser;
 
 #[derive(Debug)]
 pub struct Venue {
-    name: String,
+    pub name: String,
 }
 
 impl Display for Venue {
@@ -26,9 +25,9 @@ impl Display for Venue {
 
 #[derive(Debug)]
 pub struct Agenda {
-    title: String,
-    description: Option<String>,
-    url: String,
+    pub title: String,
+    pub description: Option<String>,
+    pub url: String,
 }
 
 impl Display for Agenda {
@@ -67,7 +66,6 @@ impl Display for SyncingResult {
 }
 
 impl<HttpSender: HttpSend> VenueScraper<'_, HttpSender> {
-
     pub fn tivoli_with_sender_and_client(
         http_sender: HttpSender,
         client: &reqwest::Client,
@@ -152,38 +150,40 @@ impl<HttpSender: HttpSend> VenueScraper<'_, HttpSender> {
                 continue;
             }
             sync_results.total_urls_fetched += 1;
+            let mut number_of_agenda_items = 0;
 
-            let body = trace_span!("fetching_url", agenda_url=agenda_url, venue=?self.venue).in_scope(|| async {
-                let request = http_sender::build_request_for_url(&self.client, &agenda_url)?;
-                let response = self.http_sender.send(request).await?;
-                http_sender::body_for_response(response).await
-            }).await?;
+            let body = trace_span!("fetching_url", agenda_url=agenda_url, venue=?self.venue)
+                .in_scope(|| async {
+                    let request = http_sender::build_request_for_url(&self.client, &agenda_url)?;
+                    let response = self.http_sender.send(request).await?;
+                    http_sender::body_for_response(response).await
+                })
+                .await?;
 
             let parsed_html = Html::parse_document(&body);
 
-            for element in parsed_html.select(&self.css_selectors.agenda_item) {
-                match parser::agenda_from_element(&element, &self.css_selectors) {
-                    Ok(_agenda) => {
-                        trace!("Got agenda {}, ", _agenda);
-                        sync_results.total_items += 1;
+            let agenda_res: Vec<Agenda> = parsed_html.select(&self.css_selectors.agenda_item)
+                .map(| agenda_item_element | parser::agenda_from_element(&agenda_item_element, &self.css_selectors))
+                .filter_map(| it | {
+                    number_of_agenda_items += 1;
+                    match it {
+                        Ok(agenda_item) => Some(agenda_item),
+                        Err(err) => {
+                            sync_results.total_unparseable_items += 1;
+                            warn!("Cannot parse an item {}", err);
+                            None
+                        }
                     }
-                    Err(ErrorKind::CannotFindSelector { selector }) => {
-                        warn!("Cannot locate selector {} in {}", selector, element.html());
-                        sync_results.total_unparseable_items += 1;
-                        continue;
-                    }
-                    Err(ErrorKind::CannotFindAttribute { attribute_name }) => {
-                        warn!("Cannot locate an attribute {}", attribute_name);
-                        sync_results.total_unparseable_items += 1;
-                        continue;
-                    }
-                    Err(err) => return Err(err),
-                }
-            }
+                })
+                .collect()
+                ;
 
-            let number_of_agenda = parsed_html.select(&self.css_selectors.agenda_item).count();
-            needs_next_page = number_of_agenda >= number_of_agenda_last_iteration;
-            number_of_agenda_last_iteration = number_of_agenda;
+            // upsert to store. Only insert if agenda_item.url does not exist.
+
+            info!("number of results {} {}", sync_results, agenda_res.len());
+            sync_results.total_items += number_of_agenda_items;
+            needs_next_page = number_of_agenda_items >= number_of_agenda_last_iteration;
+            number_of_agenda_last_iteration = number_of_agenda_items;
         }
 
         info!("Sync completed {} {}", self.venue, sync_results);
@@ -196,7 +196,8 @@ pub async fn sync_venues() -> Result<i64, ErrorKind> {
     let client = reqwest::Client::new();
 
     let mut tivoli_syncer = VenueScraper::tivoli_with_sender_and_client(Sender, &client).unwrap();
-    let mut spot_groningen_syncer = VenueScraper::spot_groningen_with_sender_and_client(Sender, &client).unwrap();
+    let mut spot_groningen_syncer =
+        VenueScraper::spot_groningen_with_sender_and_client(Sender, &client).unwrap();
 
     let (spot_result, tivoli_result) = join!(spot_groningen_syncer.sync(), tivoli_syncer.sync());
 

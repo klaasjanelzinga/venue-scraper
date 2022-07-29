@@ -16,7 +16,10 @@ impl Display for CssSelectors {
     }
 }
 
-fn get_text_for_single(logical_selector_name: &str,  text_element: &ElementRef) -> Result<String, ErrorKind> {
+fn get_text_for_single(
+    logical_selector_name: &str,
+    text_element: &ElementRef,
+) -> Result<String, ErrorKind> {
     if text_element.text().count() == 0 {
         return Err(ErrorKind::CannotFindSelector {
             selector: logical_selector_name.to_string(),
@@ -45,7 +48,7 @@ pub fn get_text_from_element(
     search_in: &ElementRef,
     selector: &Selector,
 ) -> Result<String, ErrorKind> {
-    let selected = get_select_on_element(logical_selector_name,&search_in, &selector)?;
+    let selected = get_select_on_element(logical_selector_name, &search_in, &selector)?;
     get_text_for_single(logical_selector_name, &selected)
 }
 
@@ -54,9 +57,9 @@ pub fn optional_text_from_element(
     search_in: &ElementRef,
     selector: &Selector,
 ) -> Result<Option<String>, ErrorKind> {
-    let selected_result = get_select_on_element(logical_selector_name,&search_in, &selector);
+    let selected_result = get_select_on_element(logical_selector_name, &search_in, &selector);
     match selected_result {
-        Ok(selected) => match get_text_for_single(logical_selector_name,&selected) {
+        Ok(selected) => match get_text_for_single(logical_selector_name, &selected) {
             Ok(text) => Ok(Some(text)),
             Err(_) => Ok(None),
         },
@@ -99,7 +102,8 @@ pub fn agenda_from_element(
 ) -> Result<Agenda, ErrorKind> {
     let url = get_text_from_attr("url", &search_in, &css_selectors.url, "href")?;
     let title = get_text_from_element("title", &search_in, &css_selectors.title)?;
-    let description = optional_text_from_element("description:", &search_in, &css_selectors.description)?;
+    let description =
+        optional_text_from_element("description:", &search_in, &css_selectors.description)?;
 
     Ok(Agenda {
         title,
