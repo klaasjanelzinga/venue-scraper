@@ -22,3 +22,7 @@ http = "^0.2"
 scraper = "^0.13"
 url = "^2.2"
 cssparser = "^0.29"
+
+mongodb = "2.3.0"
+serde = { version = "^1.0.0", features = ["derive"] }
+serde_json = { version = "^1.0.0"}

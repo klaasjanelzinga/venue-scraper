@@ -1,52 +1,23 @@
 use std::fmt::{Debug, Display, Formatter};
+use std::future::Future;
 
-use scraper::{ElementRef, Html};
-use tokio::join;
-use tracing::{error, info, instrument, trace, trace_span, warn};
+use agenda::{Agenda, Venue};
+use scraper::Html;
+use tokio::{join};
+use tracing::{error, info, trace, trace_span, warn};
 
+use crate::agenda::{create_mongo_connection, upsert_agenda};
+use crate::config::Config;
 use errors::ErrorKind;
-use http_sender::{HttpSend, Sender};
+use http_sender::{DefaultHttpSender, HttpSender};
+use mongodb::Database;
 use parser::CssSelectors;
 
+pub mod agenda;
+pub mod config;
 pub mod errors;
 pub mod http_sender;
 mod parser;
-
-#[derive(Debug)]
-pub struct Venue {
-    pub name: String,
-}
-
-impl Display for Venue {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Venue").field("url", &self.name).finish()
-    }
-}
-
-#[derive(Debug)]
-pub struct Agenda {
-    pub title: String,
-    pub description: Option<String>,
-    pub url: String,
-}
-
-impl Display for Agenda {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Agenda")
-            .field("url", &self.url)
-            .field("title", &self.title)
-            .field("description", &self.description)
-            .finish()
-    }
-}
-
-pub struct VenueScraper<'a, HttpSender: HttpSend = Sender> {
-    client: &'a reqwest::Client,
-    pub http_sender: HttpSender,
-    venue: Venue,
-    agenda_urls: Vec<String>,
-    css_selectors: CssSelectors,
-}
 
 #[derive(Debug)]
 pub struct SyncingResult {
@@ -65,11 +36,21 @@ impl Display for SyncingResult {
     }
 }
 
-impl<HttpSender: HttpSend> VenueScraper<'_, HttpSender> {
+pub struct VenueScraper {
+    client: reqwest::Client,
+    pub http_sender: Box<dyn HttpSender>,
+    venue: Venue,
+    agenda_urls: Vec<String>,
+    css_selectors: CssSelectors,
+    db: Database,
+}
+
+impl VenueScraper {
     pub fn tivoli_with_sender_and_client(
-        http_sender: HttpSender,
-        client: &reqwest::Client,
-    ) -> Result<VenueScraper<HttpSender>, ErrorKind> {
+        http_sender: Box<dyn HttpSender>,
+        client: reqwest::Client,
+        db: Database,
+    ) -> Result<VenueScraper, ErrorKind> {
         let mut agenda_urls = Vec::new();
         agenda_urls.push(String::from("https://www.tivolivredenburg.nl/agenda/"));
         for count in 2..20 {
@@ -100,13 +81,15 @@ impl<HttpSender: HttpSend> VenueScraper<'_, HttpSender> {
             agenda_urls,
             venue,
             css_selectors,
+            db,
         })
     }
 
     pub fn spot_groningen_with_sender_and_client(
-        http_sender: HttpSender,
-        client: &reqwest::Client,
-    ) -> Result<VenueScraper<HttpSender>, ErrorKind> {
+        http_sender: Box<dyn HttpSender>,
+        client: reqwest::Client,
+        db: Database,
+    ) -> Result<VenueScraper, ErrorKind> {
         let mut agenda_urls = Vec::new();
         agenda_urls.push(String::from("https://www.spotgroningen.nl/programma/"));
 
@@ -132,6 +115,7 @@ impl<HttpSender: HttpSend> VenueScraper<'_, HttpSender> {
             agenda_urls,
             venue,
             css_selectors,
+            db,
         })
     }
 
@@ -149,8 +133,8 @@ impl<HttpSender: HttpSend> VenueScraper<'_, HttpSender> {
             if !needs_next_page {
                 continue;
             }
-            sync_results.total_urls_fetched += 1;
             let mut number_of_agenda_items = 0;
+            let mut number_of_unparseable_agenda_items = 0;
 
             let body = trace_span!("fetching_url", agenda_url=agenda_url, venue=?self.venue)
                 .in_scope(|| async {
@@ -160,30 +144,41 @@ impl<HttpSender: HttpSend> VenueScraper<'_, HttpSender> {
                 })
                 .await?;
 
-            let parsed_html = Html::parse_document(&body);
+            let parsed_html =
+                trace_span!("parsing_document").in_scope(|| Html::parse_document(&body));
 
-            let agenda_res: Vec<Agenda> = parsed_html.select(&self.css_selectors.agenda_item)
-                .map(| agenda_item_element | parser::agenda_from_element(&agenda_item_element, &self.css_selectors))
-                .filter_map(| it | {
-                    number_of_agenda_items += 1;
-                    match it {
-                        Ok(agenda_item) => Some(agenda_item),
-                        Err(err) => {
-                            sync_results.total_unparseable_items += 1;
-                            warn!("Cannot parse an item {}", err);
-                            None
+            let agenda_res: Vec<Agenda> = trace_span!("doc_to_agenda_items").in_scope(|| {
+                parsed_html
+                    .select(&self.css_selectors.agenda_item)
+                    .map(|agenda_item_element| {
+                        parser::agenda_from_element(&agenda_item_element, &self.css_selectors)
+                    })
+                    .filter_map(|it| {
+                        number_of_agenda_items += 1;
+                        match it {
+                            Ok(agenda_item) => Some(agenda_item),
+                            Err(err) => {
+                                number_of_unparseable_agenda_items += 1;
+                                warn!("Cannot parse an item {}", err);
+                                None
+                            }
                         }
-                    }
-                })
-                .collect()
-                ;
+                    })
+                    .collect()
+            });
 
             // upsert to store. Only insert if agenda_item.url does not exist.
+            for agenda in agenda_res {
+                upsert_agenda(&agenda, &self.db).await?;
+            }
 
-            info!("number of results {} {}", sync_results, agenda_res.len());
             sync_results.total_items += number_of_agenda_items;
+            sync_results.total_urls_fetched += 1;
+            sync_results.total_unparseable_items += number_of_unparseable_agenda_items;
+
             needs_next_page = number_of_agenda_items >= number_of_agenda_last_iteration;
             number_of_agenda_last_iteration = number_of_agenda_items;
+            info!("number of results {}", sync_results);
         }
 
         info!("Sync completed {} {}", self.venue, sync_results);
@@ -193,11 +188,22 @@ impl<HttpSender: HttpSend> VenueScraper<'_, HttpSender> {
 
 pub async fn sync_venues() -> Result<i64, ErrorKind> {
     trace!("sync_venues");
+    let config = Config::from_environment();
     let client = reqwest::Client::new();
+    let db = create_mongo_connection(&config).await?;
 
-    let mut tivoli_syncer = VenueScraper::tivoli_with_sender_and_client(Sender, &client).unwrap();
-    let mut spot_groningen_syncer =
-        VenueScraper::spot_groningen_with_sender_and_client(Sender, &client).unwrap();
+    let mut tivoli_syncer = VenueScraper::tivoli_with_sender_and_client(
+        Box::new(DefaultHttpSender),
+        client.clone(),
+        db.clone(),
+    )
+    .unwrap();
+    let mut spot_groningen_syncer = VenueScraper::spot_groningen_with_sender_and_client(
+        Box::new(DefaultHttpSender),
+        client.clone(),
+        db.clone(),
+    )
+    .unwrap();
 
     let (spot_result, tivoli_result) = join!(spot_groningen_syncer.sync(), tivoli_syncer.sync());
 

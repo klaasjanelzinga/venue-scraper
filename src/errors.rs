@@ -26,6 +26,9 @@ pub enum ErrorKind {
     CannotFindSelector {
         selector: String,
     },
+    MongoDbError {
+        mongodb_error: mongodb::error::Error,
+    },
 }
 
 impl std::error::Error for ErrorKind {}
@@ -44,6 +47,14 @@ impl From<reqwest::Error> for ErrorKind {
     fn from(reqwest_error: Error) -> Self {
         match reqwest_error {
             _ => ErrorKind::GenericError,
+        }
+    }
+}
+
+impl From<mongodb::error::Error> for ErrorKind {
+    fn from(mongo_error: mongodb::error::Error) -> Self {
+        ErrorKind::MongoDbError {
+            mongodb_error: mongo_error,
         }
     }
 }
@@ -76,6 +87,9 @@ impl Display for ErrorKind {
             }
             ErrorKind::CannotFindSelector { selector } => {
                 write!(f, "CannotFindSelector: {}", selector)
+            }
+            ErrorKind::MongoDbError { mongodb_error } => {
+                write!(f, "MongoDbError: {:?}", mongodb_error)
             }
         }
     }

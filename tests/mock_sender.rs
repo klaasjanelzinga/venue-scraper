@@ -4,23 +4,20 @@ use tokio::fs::File;
 use tokio::io::AsyncReadExt;
 use tracing::trace;
 use venue_scraper_api::errors::ErrorKind;
-use venue_scraper_api::http_sender::HttpSend;
+use venue_scraper_api::http_sender::HttpSender;
 
 pub struct MockSender {
     pub test_case: String,
-    pub invoked_urls: Vec<String>,
 }
 
 #[async_trait]
-impl HttpSend for MockSender {
+impl HttpSender for MockSender {
     async fn send(
         &mut self,
         request: reqwest::RequestBuilder,
     ) -> Result<reqwest::Response, ErrorKind> {
         let request = request.build().unwrap();
         let url = request.url();
-
-        self.invoked_urls.push(url.to_string());
 
         let mut path = url.path().to_string();
         if path.starts_with("/") {

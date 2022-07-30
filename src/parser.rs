@@ -1,4 +1,5 @@
-use crate::{Agenda, ErrorKind};
+use crate::agenda::Agenda;
+use crate::ErrorKind;
 use scraper::{ElementRef, Selector};
 use std::fmt::{Display, Formatter};
 
@@ -106,6 +107,7 @@ pub fn agenda_from_element(
         optional_text_from_element("description:", &search_in, &css_selectors.description)?;
 
     Ok(Agenda {
+        _id: None,
         title,
         description,
         url: url.to_string(),

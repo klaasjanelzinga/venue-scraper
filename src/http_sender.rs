@@ -1,21 +1,19 @@
-use crate::{instrument, ErrorKind};
+use crate::ErrorKind;
 use async_trait::async_trait;
 use reqwest::{RequestBuilder, Response};
-use tracing::trace;
 use url::Url;
 
 #[async_trait]
-pub trait HttpSend {
+pub trait HttpSender {
     async fn send(&mut self, request: RequestBuilder) -> Result<Response, ErrorKind>;
 }
 
-pub struct Sender;
+pub struct DefaultHttpSender;
 
 #[async_trait]
-impl HttpSend for Sender {
-    async fn send(&mut self, request: reqwest::RequestBuilder) -> Result<Response, ErrorKind> {
-        let response = request.send().await?;
-        Ok(response)
+impl HttpSender for DefaultHttpSender {
+    async fn send(&mut self, request: RequestBuilder) -> Result<Response, ErrorKind> {
+        Ok(request.send().await?)
     }
 }
 
@@ -27,12 +25,10 @@ impl HttpSend for Sender {
 ///
 /// # Returns:
 /// A get request or if the url cannot be parsed, an ErrorKind.
-#[instrument(level = "trace", skip(client))]
 pub fn build_request_for_url(
     client: &reqwest::Client,
     url: &str,
 ) -> Result<RequestBuilder, ErrorKind> {
-    trace!("build_request_for_url");
     let url = Url::parse(url)?;
     let request = client.get(url);
     Ok(request)
