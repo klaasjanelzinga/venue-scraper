@@ -1,17 +1,18 @@
 use std::fmt::{Debug, Display, Formatter};
-use std::future::Future;
+use std::rc::Rc;
 
-use agenda::{Agenda, Venue};
+use agenda::Venue;
 use scraper::Html;
-use tokio::{join};
 use tracing::{error, info, trace, trace_span, warn};
 
-use crate::agenda::{create_mongo_connection, upsert_agenda};
+use crate::agenda::upsert_agenda;
 use crate::config::Config;
 use errors::ErrorKind;
-use http_sender::{DefaultHttpSender, HttpSender};
+use http_sender::HttpSender;
 use mongodb::Database;
 use parser::CssSelectors;
+use reqwest::Client;
+use tokio::join;
 
 pub mod agenda;
 pub mod config;
@@ -24,6 +25,25 @@ pub struct SyncingResult {
     pub total_urls_fetched: u32,
     pub total_items: u32,
     pub total_unparseable_items: u32,
+    pub total_items_inserted: u32,
+}
+
+impl SyncingResult {
+    fn with_zeroes() -> SyncingResult {
+        SyncingResult {
+            total_items: 0,
+            total_items_inserted: 0,
+            total_urls_fetched: 0,
+            total_unparseable_items: 0,
+        }
+    }
+
+    fn add(&mut self, other: &SyncingResult) {
+        self.total_unparseable_items += other.total_unparseable_items;
+        self.total_items_inserted += other.total_items_inserted;
+        self.total_items += other.total_items;
+        self.total_urls_fetched += other.total_urls_fetched;
+    }
 }
 
 impl Display for SyncingResult {
@@ -32,13 +52,14 @@ impl Display for SyncingResult {
             .field("total_urls_fetched", &self.total_urls_fetched)
             .field("total_items", &self.total_items)
             .field("total_unparseable_items", &self.total_unparseable_items)
+            .field("total_items_inserted", &self.total_items_inserted)
             .finish()
     }
 }
 
 pub struct VenueScraper {
-    client: reqwest::Client,
-    pub http_sender: Box<dyn HttpSender>,
+    client: Client,
+    pub http_sender: Rc<dyn HttpSender>,
     venue: Venue,
     agenda_urls: Vec<String>,
     css_selectors: CssSelectors,
@@ -47,8 +68,8 @@ pub struct VenueScraper {
 
 impl VenueScraper {
     pub fn tivoli_with_sender_and_client(
-        http_sender: Box<dyn HttpSender>,
-        client: reqwest::Client,
+        http_sender: Rc<dyn HttpSender>,
+        client: Client,
         db: Database,
     ) -> Result<VenueScraper, ErrorKind> {
         let mut agenda_urls = Vec::new();
@@ -86,8 +107,8 @@ impl VenueScraper {
     }
 
     pub fn spot_groningen_with_sender_and_client(
-        http_sender: Box<dyn HttpSender>,
-        client: reqwest::Client,
+        http_sender: Rc<dyn HttpSender>,
+        client: Client,
         db: Database,
     ) -> Result<VenueScraper, ErrorKind> {
         let mut agenda_urls = Vec::new();
@@ -119,15 +140,11 @@ impl VenueScraper {
         })
     }
 
-    pub async fn sync(&mut self) -> Result<SyncingResult, ErrorKind> {
+    pub async fn sync(&self) -> Result<SyncingResult, ErrorKind> {
         info!("Syncing venue {}", self.venue);
         let mut number_of_agenda_last_iteration = 0;
         let mut needs_next_page = true;
-        let mut sync_results = SyncingResult {
-            total_urls_fetched: 0,
-            total_items: 0,
-            total_unparseable_items: 0,
-        };
+        let mut sync_results = SyncingResult::with_zeroes();
 
         for agenda_url in self.agenda_urls.iter() {
             if !needs_next_page {
@@ -147,7 +164,7 @@ impl VenueScraper {
             let parsed_html =
                 trace_span!("parsing_document").in_scope(|| Html::parse_document(&body));
 
-            let agenda_res: Vec<Agenda> = trace_span!("doc_to_agenda_items").in_scope(|| {
+            let agenda_res = trace_span!("doc_to_agenda_items").in_scope(|| {
                 parsed_html
                     .select(&self.css_selectors.agenda_item)
                     .map(|agenda_item_element| {
@@ -164,13 +181,24 @@ impl VenueScraper {
                             }
                         }
                     })
-                    .collect()
+                    .into_iter()
             });
 
-            // upsert to store. Only insert if agenda_item.url does not exist.
-            for agenda in agenda_res {
-                upsert_agenda(&agenda, &self.db).await?;
-            }
+            trace_span!("store_agenda_items")
+                .in_scope(|| async {
+                    for agenda in agenda_res {
+                        let nw_agenda = upsert_agenda(&agenda, &self.db).await;
+                        match nw_agenda {
+                            Ok(nw_agenda_result) => {
+                                if nw_agenda_result.inserted {
+                                    sync_results.total_items_inserted += 1;
+                                }
+                            }
+                            Err(_) => {}
+                        }
+                    }
+                })
+                .await;
 
             sync_results.total_items += number_of_agenda_items;
             sync_results.total_urls_fetched += 1;
@@ -186,32 +214,35 @@ impl VenueScraper {
     }
 }
 
-pub async fn sync_venues() -> Result<i64, ErrorKind> {
+pub async fn sync_venues(
+    client: &Client,
+    db: &Database,
+    http_sender: Rc<dyn HttpSender>,
+) -> Result<SyncingResult, ErrorKind> {
     trace!("sync_venues");
-    let config = Config::from_environment();
-    let client = reqwest::Client::new();
-    let db = create_mongo_connection(&config).await?;
 
-    let mut tivoli_syncer = VenueScraper::tivoli_with_sender_and_client(
-        Box::new(DefaultHttpSender),
+    let tivoli_syncer = VenueScraper::tivoli_with_sender_and_client(
+        Rc::clone(&http_sender),
         client.clone(),
         db.clone(),
-    )
-    .unwrap();
-    let mut spot_groningen_syncer = VenueScraper::spot_groningen_with_sender_and_client(
-        Box::new(DefaultHttpSender),
+    )?;
+    let spot_groningen_syncer = VenueScraper::spot_groningen_with_sender_and_client(
+        Rc::clone(&http_sender),
         client.clone(),
         db.clone(),
-    )
-    .unwrap();
+    )?;
 
+    let mut sync_results = SyncingResult::with_zeroes();
     let (spot_result, tivoli_result) = join!(spot_groningen_syncer.sync(), tivoli_syncer.sync());
 
     for result in [spot_result, tivoli_result] {
         match result {
             Err(err) => error!("Error syncing tivoli {}", err),
-            _ => info!("All went well"),
+            Ok(results) => {
+                sync_results.add(&results);
+            }
         }
     }
-    Ok(3)
+
+    Ok(sync_results)
 }

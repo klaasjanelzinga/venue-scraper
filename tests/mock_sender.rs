@@ -12,10 +12,7 @@ pub struct MockSender {
 
 #[async_trait]
 impl HttpSender for MockSender {
-    async fn send(
-        &mut self,
-        request: reqwest::RequestBuilder,
-    ) -> Result<reqwest::Response, ErrorKind> {
+    async fn send(&self, request: reqwest::RequestBuilder) -> Result<reqwest::Response, ErrorKind> {
         let request = request.build().unwrap();
         let url = request.url();
 

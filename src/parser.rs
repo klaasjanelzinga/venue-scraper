@@ -111,5 +111,6 @@ pub fn agenda_from_element(
         title,
         description,
         url: url.to_string(),
+        needs_details: true,
     })
 }

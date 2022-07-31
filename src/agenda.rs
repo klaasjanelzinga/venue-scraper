@@ -1,10 +1,10 @@
 use crate::{Config, ErrorKind};
-use mongodb::{Client, Collection, Database};
-use std::fmt::{Display, Formatter};
-use tracing::{info, trace};
 use mongodb::bson::doc;
 use mongodb::bson::Bson;
+use mongodb::{Client, Collection, Database};
 use serde::{Deserialize, Serialize};
+use std::fmt::{Display, Formatter};
+use tracing::{info, trace};
 
 use mongodb::options::ClientOptions;
 
@@ -23,9 +23,12 @@ impl Display for Venue {
 pub struct Agenda {
     #[serde(skip_serializing)]
     pub _id: Option<Bson>,
+
+    pub url: String,
     pub title: String,
     pub description: Option<String>,
-    pub url: String,
+
+    pub needs_details: bool,
 }
 
 impl Display for Agenda {
@@ -44,27 +47,44 @@ fn agenda_collection(db: &Database) -> Collection<Agenda> {
     db.collection::<Agenda>("agenda")
 }
 
+/// Retrieve an Agenda by the url.
 pub async fn get_agenda_by_url(url: &str, db: &Database) -> Result<Option<Agenda>, ErrorKind> {
     let agenda_collection = agenda_collection(&db);
     let optional_agenda = agenda_collection.find_one(doc! {"url": &url}, None).await?;
     match optional_agenda {
         Some(agenda) => Ok(Some(agenda)),
-        None => Ok(None)
+        None => Ok(None),
     }
 }
 
-pub async fn upsert_agenda(agenda: &Agenda, db: &Database) -> Result<Agenda, ErrorKind> {
+pub struct UpsertAgendaResult {
+    pub agenda: Agenda,
+    pub inserted: bool,
+}
+
+pub async fn upsert_agenda(
+    agenda: &Agenda,
+    db: &Database,
+) -> Result<UpsertAgendaResult, ErrorKind> {
     let agenda_collection = agenda_collection(&db);
     match get_agenda_by_url(&agenda.url, &db).await? {
-        Some(agenda) => Ok(agenda),
+        Some(agenda) => Ok(UpsertAgendaResult {
+            agenda,
+            inserted: false,
+        }),
         None => {
-            let insert_result = agenda_collection.insert_one(agenda, None).await?;
-            trace!("Inserted a new agenda");
-            Ok(Agenda {
+            let new_agenda = Agenda {
                 _id: None,
                 url: agenda.url.clone(),
                 description: agenda.description.clone(),
                 title: agenda.title.clone(),
+                needs_details: true,
+            };
+            let _insert_result = agenda_collection.insert_one(&new_agenda, None).await?;
+
+            Ok(UpsertAgendaResult {
+                agenda: new_agenda,
+                inserted: true,
             })
         }
     }

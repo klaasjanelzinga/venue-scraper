@@ -5,14 +5,14 @@ use url::Url;
 
 #[async_trait]
 pub trait HttpSender {
-    async fn send(&mut self, request: RequestBuilder) -> Result<Response, ErrorKind>;
+    async fn send(&self, request: RequestBuilder) -> Result<Response, ErrorKind>;
 }
 
 pub struct DefaultHttpSender;
 
 #[async_trait]
 impl HttpSender for DefaultHttpSender {
-    async fn send(&mut self, request: RequestBuilder) -> Result<Response, ErrorKind> {
+    async fn send(&self, request: RequestBuilder) -> Result<Response, ErrorKind> {
         Ok(request.send().await?)
     }
 }
