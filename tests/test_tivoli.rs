@@ -1,21 +1,14 @@
 mod common;
 mod mock_sender;
 
-use mock_sender::MockSender;
-use std::rc::Rc;
-use venue_scraper_api::VenueScraper;
+use mock_sender::tivoli_utrecht_with_mock_sender;
 
 #[tokio::test]
 async fn test_sync_tivoli() {
     let test_fixtures = common::setup().await;
 
-    let mock_sender = Rc::new(MockSender {
-        test_case: String::from("default-test-case"),
-    });
-    let client = reqwest::Client::new();
-
     let tivoli_syncer =
-        VenueScraper::tivoli_with_sender_and_client(mock_sender, client, test_fixtures.db).unwrap();
+        tivoli_utrecht_with_mock_sender("default-test-case", test_fixtures.db.clone());
     let result = tivoli_syncer.sync().await;
 
     assert!(result.is_ok());

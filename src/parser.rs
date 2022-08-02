@@ -100,6 +100,7 @@ pub fn selector_for(selector: &str) -> Result<Selector, ErrorKind> {
 pub fn agenda_from_element(
     search_in: &ElementRef,
     css_selectors: &CssSelectors,
+    venue_id: &String,
 ) -> Result<Agenda, ErrorKind> {
     let url = get_text_from_attr("url", &search_in, &css_selectors.url, "href")?;
     let title = get_text_from_element("title", &search_in, &css_selectors.title)?;
@@ -108,6 +109,7 @@ pub fn agenda_from_element(
 
     Ok(Agenda {
         _id: None,
+        venue_id: venue_id.clone(),
         title,
         description,
         url: url.to_string(),

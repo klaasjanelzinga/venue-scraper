@@ -1,7 +1,7 @@
 use crate::{Config, ErrorKind};
 use mongodb::bson::doc;
 use mongodb::bson::Bson;
-use mongodb::{Client, Collection, Database};
+use mongodb::{Client, Collection, Cursor, Database};
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
 use tracing::{info, trace};
@@ -10,6 +10,7 @@ use mongodb::options::ClientOptions;
 
 #[derive(Debug)]
 pub struct Venue {
+    pub venue_id: String,
     pub name: String,
 }
 
@@ -27,6 +28,8 @@ pub struct Agenda {
     pub url: String,
     pub title: String,
     pub description: Option<String>,
+
+    pub venue_id: String,
 
     pub needs_details: bool,
 }
@@ -62,7 +65,7 @@ pub struct UpsertAgendaResult {
     pub inserted: bool,
 }
 
-pub async fn upsert_agenda(
+pub async fn insert_or_get_agenda(
     agenda: &Agenda,
     db: &Database,
 ) -> Result<UpsertAgendaResult, ErrorKind> {
@@ -75,6 +78,7 @@ pub async fn upsert_agenda(
         None => {
             let new_agenda = Agenda {
                 _id: None,
+                venue_id: agenda.venue_id.clone(),
                 url: agenda.url.clone(),
                 description: agenda.description.clone(),
                 title: agenda.title.clone(),
@@ -90,6 +94,19 @@ pub async fn upsert_agenda(
     }
 }
 
+pub async fn update_agenda(agenda: &Agenda, db: &Database) -> Result<(), ErrorKind> {
+    let collection = agenda_collection(&db);
+    let update_results = collection
+        .replace_one(doc! { "url": &agenda.url }, agenda, None)
+        .await?;
+
+    if update_results.matched_count != 1 || update_results.modified_count != 1 {
+        Err(ErrorKind::GenericError)
+    } else {
+        Ok(())
+    }
+}
+
 pub async fn create_mongo_connection(config: &Config) -> Result<Database, ErrorKind> {
     trace!("Connecting mongodb, config {}", config);
     let client_options = ClientOptions::parse(&config.mongo_url).await?;
@@ -97,4 +114,14 @@ pub async fn create_mongo_connection(config: &Config) -> Result<Database, ErrorK
     info!("Mongo db client connected with config {}", config);
     let db = client.database(&config.mongo_db);
     Ok(db)
+}
+
+pub async fn execute_on_agenda_items(
+    venue_id: &String,
+    db: &Database,
+) -> Result<Cursor<Agenda>, ErrorKind> {
+    let collection = agenda_collection(db);
+    let filter = doc! { "venue_id": venue_id };
+    let cursor = collection.find(filter, None).await?;
+    Ok(cursor)
 }

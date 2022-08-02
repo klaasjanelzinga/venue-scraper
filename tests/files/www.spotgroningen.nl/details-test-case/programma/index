@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html class=" no-js" lang="nl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, minimum-scale=1.0, initial-scale=1.0">
+    <meta property="og:image:width" content="2048"/>
+    <meta property="og:image:height" content="944"/>
+    <meta property="og:image:type" content="image/png"/>
+    <meta name="twitter:card" content="summary_large_image"/>
+    <meta name="twitter:site" content="@spotmuziek"/>
+<body class="">
+
+<div class="container">
+    <main class="main">
+        <div class="program">
+            <div class="program__wrap">
+                <section class="program__list">
+                    <div class="program__month"><h1 class="program__month__title">augustus</h1>
+                        <div class="program__day">
+                            <article class="program__item " data-title="herman-van-veen-dat-kun-je-wel-zien"
+                                     data-description="het-bijna-betoverde-publiek-in-carre-wilde-meer-de-volkskrant-%e2%98%85%e2%98%85%e2%98%85%e2%98%85%e2%98%85"
+                                     data-datetime="1662322500" data-genres="cabaret" data-subgenres="kleinkunst"
+                                     data-filters=""><a
+                                    href="https://www.spotgroningen.nl/programma/herman-van-veen-11/"
+                                    class="program__link">
+                                <time datetime="2022-09-04T20:15:00+02:00" class="program__date"><span>zo</span><strong>
+                                    4</strong><span>sep</span></time>
+                                <figure class="program__figure" style="background-color: #fef2f2;"><img
+                                        src="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs="
+                                        data-src="/wp-content/uploads/2021/12/Herman-van-Veen-c-Maarten-Ederveen-2-e1652962412227-300x151.jpg"
+                                        class="program__image b-lazy" alt="Herman van Veen"></figure>
+                                <div class="program__content"><h1>Herman van Veen<span>Dat kun je wel zien</span></h1>
+                                    <p>"Het bijna betoverde publiek in Carré wilde meer" (de Volkskrant ★★★★★)</p><span
+                                            class="program__status">Uitverkocht</span></div>
+                            </a></article>
+                            <article class="program__item "
+                                     data-title="sarah-shook-the-disarmers-support-vincent-neil-emerson"
+                                     data-description="takeroot-presents-country-met-een-stevige-bite"
+                                     data-datetime="1662323400" data-genres="muziek" data-subgenres="" data-filters="">
+                                <a href="https://www.spotgroningen.nl/programma/sarah-shook-the-disarmers/"
+                                   class="program__link">
+                                    <time datetime="2022-09-04T20:30:00+02:00" class="program__date">
+                                        <span>zo</span><strong> 4</strong><span>sep</span></time>
+                                    <figure class="program__figure" style="background-color: #fcfcfc;"><img
+                                            src="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs="
+                                            data-src="/wp-content/uploads/2021/03/Sarah_Shook_Disarmers-1-WEBSITE-Chris-Sikich-1-scaled-e1616492960337-300x136.jpg"
+                                            class="program__image b-lazy" alt="Sarah Shook & The Disarmers"></figure>
+                                    <div class="program__content"><h1>Sarah Shook & The Disarmers<span>+ support: Vincent Neil Emerson</span>
+                                    </h1>
+                                        <p>TakeRoot presents: country met een stevige bite</p></div>
+                                </a></article>
+                        </div>
+                        <div class="program__day">
+                            <article class="program__item " data-title="michael-patrick-kelly-boats-european-tour"
+                                     data-description="telg-van-the-kelly-family-komt-met-nieuw-album"
+                                     data-datetime="1662494400" data-genres="muziek" data-subgenres="" data-filters="">
+                                <a href="https://www.spotgroningen.nl/programma/michael-patrick-kelly/"
+                                   class="program__link">
+                                    <time datetime="2022-09-06T20:00:00+02:00" class="program__date">
+                                        <span>di</span><strong> 6</strong><span>sep</span></time>
+                                    <figure class="program__figure" style="background-color: #f26859;"><img
+                                            src="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs="
+                                            data-src="/wp-content/uploads/2022/04/Michael-Patrick-Kelly-1-300x169.jpg"
+                                            class="program__image b-lazy" alt="Michael Patrick Kelly"></figure>
+                                    <div class="program__content"><h1>Michael Patrick
+                                        Kelly<span>B•O•A•T•S European Tour</span></h1>
+                                        <p>Telg van The Kelly Family komt met nieuw album</p></div>
+                                </a></article>
+                            <article class="program__item " data-title="swamp-dogg"
+                                     data-description="humoristische-cultheld-zingt-funky-southern-soul"
+                                     data-datetime="1662494400" data-genres="muziek"
+                                     data-subgenres="blues-roots-americana" data-filters=""><a
+                                    href="https://www.spotgroningen.nl/programma/swamp-dogg/" class="program__link">
+                                <time datetime="2022-09-06T20:00:00+02:00" class="program__date"><span>di</span><strong>
+                                    6</strong><span>sep</span></time>
+                                <figure class="program__figure" style="background-color: #f44e3f;"><img
+                                        src="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs="
+                                        data-src="/wp-content/uploads/2022/06/Swamp-3-300x200.jpg"
+                                        class="program__image b-lazy" alt="Swamp Dogg"></figure>
+                                <div class="program__content"><h1>Swamp Dogg</h1>
+                                    <p>Humoristische cultheld zingt funky southern soul</p></div>
+                            </a></article>
+                        </div>
+                        <div class="program__day">
+                            <article class="program__item " data-title="keb-mo-support-buffalo-nichols"
+                                     data-description="virtuoze-bluesgitarist-die-soul-jazz-en-blues-versmelt-tot-een-organisch-geheel"
+                                     data-datetime="1662580800" data-genres="muziek" data-subgenres="" data-filters="">
+                                <a href="https://www.spotgroningen.nl/programma/keb-mo/" class="program__link">
+                                    <time datetime="2022-09-07T20:00:00+02:00" class="program__date">
+                                        <span>wo</span><strong> 7</strong><span>sep</span></time>
+                                    <figure class="program__figure" style="background-color: #f5d7a1;"><img
+                                            src="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs="
+                                            data-src="/wp-content/uploads/2020/04/image-300x183.png"
+                                            class="program__image b-lazy" alt="Keb' Mo'"></figure>
+                                    <div class="program__content"><h1>Keb' Mo'<span>Support: Buffalo Nichols</span></h1>
+                                        <p>Virtuoze bluesgitarist die soul, jazz en blues versmelt tot een organisch
+                                            geheel</p><span class="program__status">Laatste kaarten</span></div>
+                                </a></article>
+                        </div>
+                        <div class="program__day">
+                            <article class="program__item " data-title="noord-nederlands-toneel-exit-macbeth-try-out"
+                                     data-description="beeldende-radicale-en-interdisciplinaire-bewerking-van-het-origineel"
+                                     data-datetime="1662668100" data-genres="toneel" data-subgenres="" data-filters="">
+                                <a href="https://www.spotgroningen.nl/programma/noord-nederlands-toneel-75/"
+                                   class="program__link">
+                                    <time datetime="2022-09-08T20:15:00+02:00" class="program__date">
+                                        <span>do</span><strong> 8</strong><span>sep</span></time>
+                                    <figure class="program__figure" style="background-color: #e88011;"><img
+                                            src="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs="
+                                            data-src="/wp-content/uploads/2022/05/NNT_EXITMACBETH_SHOTBY_HALIE_16_9CROP-300x169.jpg"
+                                            class="program__image b-lazy" alt="Noord Nederlands Toneel"></figure>
+                                    <div class="program__content"><h1>Noord Nederlands Toneel<span>EXIT Macbeth (Try out)</span>
+                                    </h1>
+                                        <p>Beeldende, radicale en interdisciplinaire bewerking van het origineel</p>
+                                    </div>
+                                </a></article>
+                        </div>
+                    </div>
+                </section>
+            </div>
+        </div>
+    </main>
+</div>
+</body>
+</html>
+<!-- Dynamic page generated in 1.189 seconds. -->
+<!-- Cached page generated by WP-Super-Cache on 2022-07-29 12:40:57 -->
+
+<!-- Compression = gzip -->
+<!-- super cache -->

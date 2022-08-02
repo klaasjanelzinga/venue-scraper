@@ -2220,6 +2220,7 @@ dependencies = [
  "async-trait",
  "cssparser 0.29.6",
  "futures",
+ "futures-util",
  "http",
  "mongodb",
  "reqwest",

@@ -22,7 +22,8 @@ async fn test_sync_all_venues() {
     assert_eq!(syncing_results.total_items, 1030);
     assert_eq!(syncing_results.total_items_inserted, 1030);
     assert_eq!(syncing_results.total_unparseable_items, 0);
-    assert_eq!(syncing_results.total_urls_fetched, 13);
+    assert_eq!(syncing_results.total_urls_fetched, 452);
+    assert_eq!(syncing_results.total_urls_unfetchable, 439);
 
     ()
 }

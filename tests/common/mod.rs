@@ -34,6 +34,7 @@ pub async fn setup() -> TestFixtures {
                     filter::Targets::new()
                         .with_target("venue_scraper_api", Level::INFO)
                         .with_target("test_tivoli", Level::INFO)
+                        .with_target("test_fetch_details", Level::INFO)
                         // .with_target("html5ever", Level::INFO)
                         .with_default(Level::WARN),
                 )

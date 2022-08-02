@@ -72,12 +72,12 @@ impl Display for ErrorKind {
             }
             ErrorKind::StatusCodeFromUrl {
                 url,
-                status_code,
+                status_code: _,
                 status,
             } => write!(
                 f,
-                "StatusCodeFromUrl: The url {} return status code {} {}",
-                url, status_code, status
+                "StatusCodeFromUrl: The url {} returned status {}",
+                url, status
             ),
             ErrorKind::CssSelectorError { message } => {
                 write!(f, "CssSelectorError: Error in css selector {}", message)

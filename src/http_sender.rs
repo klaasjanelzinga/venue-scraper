@@ -1,6 +1,7 @@
 use crate::ErrorKind;
 use async_trait::async_trait;
-use reqwest::{RequestBuilder, Response};
+use reqwest::{Client, RequestBuilder, Response};
+use std::rc::Rc;
 use url::Url;
 
 #[async_trait]
@@ -15,6 +16,16 @@ impl HttpSender for DefaultHttpSender {
     async fn send(&self, request: RequestBuilder) -> Result<Response, ErrorKind> {
         Ok(request.send().await?)
     }
+}
+
+pub async fn get_body_for_url(
+    client: &Client,
+    http_sender: &Rc<dyn HttpSender>,
+    url: &str,
+) -> Result<String, ErrorKind> {
+    let request = build_request_for_url(client, url)?;
+    let response = http_sender.send(request).await?;
+    body_for_response(response).await
 }
 
 /// Build a GET request object for execution by the client.
